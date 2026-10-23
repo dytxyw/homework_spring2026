@@ -18,7 +18,12 @@ def compute_per_token_logprobs(
         # TODO(student): run the causal LM, align logits with the next-token targets,
         # and return per-token log-probabilities of the observed tokens.
         # Hint: use F.cross_entropy with reduction='none' for memory efficiency.
-        raise NotImplementedError("Implement compute_per_token_logprobs in the student starter.")
+        logits = model(input_ids=input_ids, attention_mask=attention_mask).logits
+        shift_logits = logits[:, :-1, :].contiguous()                # [B, L-1, V]
+        shift_labels = input_ids[:, 1:].contiguous()                 # [B, L-1]
+        logp = F.log_softmax(shift_logits, dim=-1)
+        return torch.gather(logp, 2, shift_labels.unsqueeze(-1)).squeeze(-1)XXXXXXXXXXXXX
+        # raise NotImplementedError("Implement compute_per_token_logprobs in the student starter.")
 
 
 def build_completion_mask(
@@ -31,7 +36,12 @@ def build_completion_mask(
     del pad_token_id
     # TODO(student): build a float mask of shape [B, L-1] that selects only completion tokens.
     # Be careful about the one-token shift between logits[:, :-1] and input_ids[:, 1:].
-    raise NotImplementedError("Implement build_completion_mask in the student starter.")
+    B, L = input_ids.shape
+    mask = torch.zeros((B, L - 1), dtype=torch.float32, device=input_ids.device)
+    mask[:, max(0, prompt_input_len - 1):] = 1.0
+    mask = mask * attention_mask[:, 1:].to(mask.dtype)
+    return mask
+    # raise NotImplementedError("Implement build_completion_mask in the student starter.")
 
 
 def masked_sum(x: torch.Tensor, mask: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
@@ -60,4 +70,7 @@ def approx_kl_from_logprobs(
     del eps, log_ratio_clip
     # TODO(student): implement the sampled-token KL proxy used throughout the codebase.
     # You should mask out non-completion positions and return a scalar batch mean.
-    raise NotImplementedError("Implement approx_kl_from_logprobs in the student starter.")
+    delta = torch.clamp(ref_logprobs - new_logprobs, max=log_ratio_clip)
+    kl = torch.exp(delta) - delta - 1.0
+    return (kl * mask).sum() / (mask.sum() + eps)
+    # raise NotImplementedError("Implement approx_kl_from_logprobs in the student starter.")

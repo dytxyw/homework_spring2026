@@ -213,7 +213,27 @@ def _compute_group_advantages(
     # TODO(student): compute one scalar advantage per sampled completion by grouping rewards
     # into prompt-wise batches of size `group_size`, subtracting the group mean, and optionally
     # dividing by the group standard deviation when `divide_by_std=True`.
-    raise NotImplementedError("Implement _compute_group_advantages in the student starter.")
+    if group_size <= 0:
+        raise ValueError(f"group_size must be positive, got {group_size}")
+    if rewards.numel() == 0:
+        return rewards
+    if rewards.numel() % group_size != 0:
+        raise ValueError(
+            f"num rewards ({rewards.numel()}) is not divisible by group_size ({group_size})"
+        )
+
+    # rollout 顺序：prompt0 的 G 个 completion，prompt1 的 G 个 completion，……
+    grouped = rewards.view(-1, group_size)                       # [B, G]
+    group_mean = grouped.mean(dim=1, keepdim=True)               # [B, 1]
+    centered = grouped - group_mean                              # [B, G]
+
+    if divide_by_std:
+        # 用总体标准差（biased），因为这是“组内归一化”，不是统计估计。
+        group_std = grouped.std(dim=1, unbiased=False, keepdim=True)  # [B, 1]
+        centered = centered / (group_std + eps)
+
+    return centered.view(-1)
+    # raise NotImplementedError("Implement _compute_group_advantages in the student starter.")
 
 
 def _build_online_algo(cfg: OnlineRMGRPOConfig):
@@ -239,7 +259,8 @@ def _build_online_algo(cfg: OnlineRMGRPOConfig):
 def _algo_divides_advantages_by_std(algo: str) -> bool:
     # TODO(student): return True for the algorithms that use group-standard-deviation
     # normalization and False for the algorithms that intentionally avoid it.
-    raise NotImplementedError("Implement _algo_divides_advantages_by_std in the student starter.")
+    return algo in ("grpo", "gspo")
+    # raise NotImplementedError("Implement _algo_divides_advantages_by_std in the student starter.")
 
 
 def _normalize_completion_for_reward_scoring(text: str) -> str:

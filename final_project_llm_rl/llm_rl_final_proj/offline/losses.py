@@ -83,9 +83,11 @@ def compute_offline_preference_loss(
         ref_margin_sum = reference_scores.chosen_logp_sum - reference_scores.rejected_logp_sum
         # TODO(student): compute the reference-corrected DPO logits.
         # Hint: compare the policy margin against the frozen reference margin.
-        logits = torch.empty_like(policy_margin_sum)
+        # logits = torch.empty_like(policy_margin_sum)
+        logits = policy_margin_sum - ref_margin_sum
         # TODO(student): replace this with the DPO logistic loss.
-        losses = torch.empty_like(policy_margin_sum)
+        # losses = torch.empty_like(policy_margin_sum)
+        losses = -F.logsigmoid(beta * logits)
         metrics.update(
             {
                 "preference/reference_margin_sum_mean": float(ref_margin_sum.detach().mean().item()),
@@ -98,10 +100,12 @@ def compute_offline_preference_loss(
             raise ValueError("IPO requires reference scores.")
         ref_margin_sum = reference_scores.chosen_logp_sum - reference_scores.rejected_logp_sum
         # TODO(student): compute the reference-corrected IPO logits.
-        logits = torch.empty_like(policy_margin_sum)
+        # logits = torch.empty_like(policy_margin_sum)
+        logits = policy_margin_sum - ref_margin_sum
         target_gap = 1.0 / (2.0 * beta)
         # TODO(student): implement the squared IPO target-gap objective.
-        losses = torch.empty_like(policy_margin_sum)
+        # losses = torch.empty_like(policy_margin_sum)
+        losses = (logits - target_gap) ** 2
         metrics.update(
             {
                 "preference/reference_margin_sum_mean": float(ref_margin_sum.detach().mean().item()),
@@ -114,10 +118,19 @@ def compute_offline_preference_loss(
             raise ValueError("AOT requires reference scores.")
         # TODO(student): convert policy/reference scores into chosen and rejected rewards,
         # sort both reward vectors, and apply a DPO-style logistic loss to the quantile gaps.
-        chosen_rewards = torch.empty_like(policy_scores.chosen_logp_sum)
-        rejected_rewards = torch.empty_like(policy_scores.rejected_logp_sum)
-        quantile_gap = torch.empty_like(chosen_rewards)
-        losses = torch.empty_like(chosen_rewards)
+        # chosen_rewards = torch.empty_like(policy_scores.chosen_logp_sum)
+        # rejected_rewards = torch.empty_like(policy_scores.rejected_logp_sum)
+        # 隐式奖励 r(x,y) = logπθ(y|x) - logπref(y|x)
+        chosen_rewards = policy_scores.chosen_logp_sum - reference_scores.chosen_logp_sum
+        rejected_rewards = policy_scores.rejected_logp_sum - reference_scores.rejected_logp_sum
+        # quantile_gap = torch.empty_like(chosen_rewards)
+        # losses = torch.empty_like(chosen_rewards)
+        # 在当前 minibatch 内分别对 chosen / rejected 排序，按分位对齐
+        chosen_sorted, _ = torch.sort(chosen_rewards)
+        rejected_sorted, _ = torch.sort(rejected_rewards)
+        quantile_gap = chosen_sorted - rejected_sorted
+        # 对分位 gap 施加 DPO 式 logistic loss
+        losses = -F.logsigmoid(beta * quantile_gap)
         metrics.update(
             {
                 "preference/aot_chosen_reward_mean": float(chosen_rewards.detach().mean().item()),
